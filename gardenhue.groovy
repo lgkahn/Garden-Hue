@@ -7,6 +7,11 @@
 * minutes based on a schedule.
 *
 * Version 1.0: April 28, 2016 - Initial release
+* Version 2.0: add app name to push messages.
+* also dont schedule anything if disabled is set.
+* clean up and remove some debugging.
+* add run every 5 minute option.
+* Turn off all hues when saving app.
 *
 * The latest version of this file can be found at
 * https://github.com/lgkapps/SmartThingsPublic/gardenhue
@@ -33,6 +38,7 @@ preferences {
 
 	section("Choose cycle time between color changes? ") {
             input "cycletime", "enum", title: "Cycle time in minutes?" , options: [
+                "5",
 				"10", 
 				"15", 
 				"30", 
@@ -62,63 +68,87 @@ preferences {
 def installed() {
     unsubscribe()
     unschedule()
-    initialize()
+    
+    if (hues)
+    {
+     TurnOff()
+    }
+    
+    if (settings.enabled == true)
+    {
+      initialize()
+    }  
 }
 
 def updated() {
     unsubscribe()
     unschedule()
-    initialize()
     
-    def currSwitches = hues.currentSwitch    
-    def onHues = currSwitches.findAll { switchVal -> switchVal == "on" ? true : false }
-    def numberon = onHues.size();
-    def onstr = numberon.toString() 
-  
-    log.debug "in updated on = $onstr"     
+   if (hues)
+    {
+     TurnOff()
+    }
+    
+   if (settings.enabled == true)
+    {
+      initialize()
+    }
+    
+    if (hues)
+    {
+        def currSwitches = hues.currentSwitch    
+        def onHues = currSwitches.findAll { switchVal -> switchVal == "on" ? true : false }
+        def numberon = onHues.size();
+        def onstr = numberon.toString() 
+        log.debug "in updated on = $onstr"  
+    }
 }
 
 private def initialize() {
-    log.debug(" in initialize() with settings: ${settings}")
+    log.debug(" in initialize() for $app.label with settings: ${settings}")
 
     if(hues) {
-	subscribe(hues, "switch.on", changeHandler)
-    
+	subscribe(hues, "switch.on", changeHandler)    
     subscribe(location, "sunset", SunsetHandler)
     subscribe(location, "sunrise", SunriseHandler)
     
 // uses the run every instead of direct schedule to take load off of fixed times on hub
     switch (settings.cycletime)
     {
+     case "5":
+     log.debug "switching color every 5 minutes."
+     runEvery5Minutes(changeHandler)
+     break;
+      
      case "10":
      log.debug "switching color every 10 minutes."
      runEvery10Minutes(changeHandler)
-      break;
+     break;
     
-    case "15":
+     case "15":
      log.debug "switching color every 15 minutes."
      runEvery15Minutes(changeHandler)
-      break;
+     break;
     
-    case "30":
+     case "30":
      log.debug "switching color every 30 minutes."
      runEvery30Minutes(changeHandler)
-      break;
+     break;
     
-    case "1 hour":
+     case "1 hour":
      log.debug "switching color every hour."
      runEvery1Hour(changeHandler)
-      break;
+     break;
     
-    case  "3 hours":
+     case  "3 hours":
      log.debug "switching color every 3 hours"
      runEvery3Hours(changeHandler)
-      break;
+     break;
       
      default:
      log.debug "switching color every 30 minutes."
      runEvery30Minutes(changeHandler)
-      break;
+     break;
      
     }
    // schedule("0 */15 * * * ?", changeHandler)
@@ -153,70 +183,27 @@ def SunsetHandler(evt)
  
 def TurnOff()
 {
-    log.debug "In turn off"
+    //log.debug "In turn off"
    if (settings.enabled == true)
     {
-      mysend("GardenHue : Turning Off!")
+      mysend("$app.label: Turning Off!")
 	}
 	hues.off()
 }    
 
 def TurnOn()
 {
-    log.debug "In turn on"
+   // log.debug "In turn on"
     if (settings.enabled == true)
     {
-     mysend("GardenHue: Turning On!")
+     mysend("$app.label: Turning On!")
      hues.on()
     }
 }
 
-/* old code for referrence
-
-def scheduleNext() {
-
-   log.debug "in schedule next"
-
-    def int cycle = settings.cycletime.toInteger()
-
-    log.debug "got cycle time = $cycle"
-
-    // get sunrise and sunset times
-    def sunRiseSet = getSunriseAndSunset()
- 
-    def sunriseTime = sunRiseSet.sunrise
-    log.debug("sunrise time ${sunriseTime}")
- 
-    def sunsetTime = sunRiseSet.sunset
-    log.debug("sunset time ${sunsetTime}")
-
-    if(sunriseTime.time > sunsetTime.time) {
-        sunriseTime = new Date(sunriseTime.time - (24 * 60 * 60 * 1000))
-    }
-
-    def runTime = new Date(now() + 60*15*1000)
-    for (def i = 0; i < cycle; i++) {
-        def long uts = sunriseTime.time + (i * ((sunsetTime.time - sunriseTime.time) / cycle))
-        def timeBeforeSunset = new Date(uts)
-        if(timeBeforeSunset.time > now()) {
-            runTime = timeBeforeSunset
-            last
-        }
-    }
-
-    log.debug "checking... ${runTime.time} : $runTime"
-
-    if(state.nextTimer != runTime.time) {
-        state.nextTimer = runTime.time
-        log.debug "Scheduling next step at: $runTime (sunset is $sunsetTime) :: ${state.nextTimer}"
-        runOnce(runTime, changeHandler)
-    }
-}
-*/
-
 def scheduleNextSunrise(evt) {
 
-   log.debug "in schedule next sunrise"
+   log.debug "In schedule next sunrise"
 
     def int sunriseoffset = settings.offset.toInteger()
     log.debug "got sunrise offset = $sunriseoffset"
@@ -254,7 +241,9 @@ def scheduleNextSunrise(evt) {
 def changeHandler(evt) {
 
 	log.debug "in change handler"
-  	// only do stuff if either switch is on (turns off at sunrise) or turned on manually 
+  	// only do stuff if either switch is on (turns off at sunrise) or turned on manually
+    if (hues)
+    {
     	 def currSwitches = hues.currentSwitch
          def onHues = currSwitches.findAll { switchVal -> switchVal == "on" ? true : false }
          def numberon = onHues.size();
@@ -344,6 +333,7 @@ def changeHandler(evt) {
       hues.on()
       sendcolor(newColor)
       }
+   }
 }
 
 
@@ -434,8 +424,8 @@ log.debug "In send color"
 	def newValue = [hue: hueColor, saturation: saturation, level: brightnessLevel]  
 	hues*.setColor(newValue)
         state.currentColor = color
-        mysend("GardenHue: Setting Color = $color")
-        log.debug "GardenHue: Setting Color = $color"
+        mysend("$app.label: Setting Color = $color")
+        log.debug "$app.label: Setting Color = $color"
 
 }
 
@@ -447,12 +437,12 @@ private mysend(msg) {
     }
     else {
         if (sendPushMessage != "No") {
-            log.debug("sending push message")
+            //log.debug("sending push message")
             sendPush(msg)
         }
 
         if (phone1) {
-            log.debug("sending text message")
+            //log.debug("sending text message")
             sendSms(phone1, msg)
         }
     }
