@@ -7,11 +7,15 @@
 * minutes based on a schedule.
 *
 * Version 1.0: April 28, 2016 - Initial release
+*
 * Version 2.0: add app name to push messages.
 * also dont schedule anything if disabled is set.
 * clean up and remove some debugging.
 * add run every 5 minute option.
 * Turn off all hues when saving app.
+*
+* Version 2.1:
+* add a switch/virtual switch option, which if selected the enable/disable of the app will follow.
 *
 * The latest version of this file can be found at
 * https://github.com/lgkapps/SmartThingsPublic/gardenhue
@@ -54,6 +58,7 @@ preferences {
      
      section( "Enabled/Disabled" ) {
         input "enabled","bool", title: "Enabled?", required: true, defaultValue: true
+        input "enableswitch", "capability.switch", title: "Optional: Do you have a switch/virtual switch which the application enable/disable functionality should follow? If you do not want this feature leave blank.", multiple:false, required: false
         input "randomMode","bool", title: "Enable Random Mode?", required: true, defaultValue: false
      }
     
@@ -78,15 +83,23 @@ def installed() {
     {
       initialize()
     }  
+    
+   // do event listening on switch whether enabled or not 
+     if ((enableswitch) && (hues))
+     {
+       subscribe(enableswitch,"switch",EnableSwitchHandler)
+     }
 }
 
 def updated() {
+
     unsubscribe()
     unschedule()
     
    if (hues)
     {
-     TurnOff()
+     // must always turn off here even if disabled, because this gets called when the switch disables and turns stuff off.
+     TurnOffAlways()
     }
     
    if (settings.enabled == true)
@@ -94,6 +107,12 @@ def updated() {
       initialize()
     }
     
+  // do event listening on switch whether enabled or not 
+     if ((enableswitch) && (hues))
+     {
+       subscribe(enableswitch,"switch",EnableSwitchHandler)
+     }
+     
     if (hues)
     {
         def currSwitches = hues.currentSwitch    
@@ -104,13 +123,34 @@ def updated() {
     }
 }
 
+def EnableSwitchHandler(evt)
+{
+    log.debug "In Switch Handler: Switch changed state to: ${evt.value}"
+    if (evt.value == "on")
+     {
+       log.debug "Enabling App!"
+       settings.enabled = true
+       updated()
+       // updated turns off so need to turn back on when switch tripped.. but also need to renable scheduling.
+       TurnOn()
+      }
+    else
+     {
+       log.debug "Disabling App!"
+       settings.enabled = false
+       updated()
+     }
+}
+
+
 private def initialize() {
     log.debug(" in initialize() for $app.label with settings: ${settings}")
 
-    if(hues) {
-	subscribe(hues, "switch.on", changeHandler)    
-    subscribe(location, "sunset", SunsetHandler)
-    subscribe(location, "sunrise", SunriseHandler)
+    if(hues) 
+    {
+        subscribe(hues, "switch.on", changeHandler)    
+        subscribe(location, "sunset", SunsetHandler)
+        subscribe(location, "sunrise", SunriseHandler)
     
 // uses the run every instead of direct schedule to take load off of fixed times on hub
     switch (settings.cycletime)
@@ -191,6 +231,14 @@ def TurnOff()
 	hues.off()
 }    
 
+
+ 
+def TurnOffAlways()
+{
+      mysend("$app.label: Turning Off!")
+	  hues.off()
+}    
+
 def TurnOn()
 {
    // log.debug "In turn on"
@@ -221,7 +269,17 @@ def scheduleNextSunrise(evt) {
 
     // sunrise returns today so double check we are not getting todays time but tomarrow
     // if we are before sunset time we are too early
-    if(sunriseTime.time < sunsetTime.time) {
+    
+    // bug in get sunrise time somethigs shows todays even though we are passed it.. sometimes
+    // shows the next one.. Think it has to do with timezone offset.. so compare to local time to see
+    // which case we have and if we need to add 24 hours or not
+    
+     def currentTime = new Date(now())
+     //log.debug "current time = $currentTime, sunrisetime = $sunriseTime, sunsettime = $sunsetTime"
+     
+     // if current time is greater than sunsirse we are today no tomorrow so add 24 hours.
+     if(currentTime.time > sunriseTime.time) {
+        log.debug "Adding a day as sunrise time is still today!"
         sunriseTime = new Date(sunriseTime.time + (24 * 60 * 60 * 1000))
     }
    
