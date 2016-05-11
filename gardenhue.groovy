@@ -51,7 +51,7 @@ preferences {
 			], required: true, defaultValue: "30"
 	}
 
-     section( "Turn Off How Manu Hours before Sunrise?") {
+     section( "Turn Off How Many Hours before Sunrise?") {
         input "offset", "enum", title: "Turn Off How many hours before sunrise?",options: ["0", "-1", "-2", "-3", "-4", "-5"],
         required: true, defaultValue: "0"
      }
